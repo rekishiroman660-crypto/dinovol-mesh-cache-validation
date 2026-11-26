@@ -1,0 +1,34 @@
+test_corrupt_signed_archive_is_rebuilt (__main__.MeshCacheTests.test_corrupt_signed_archive_is_rebuilt) ... ok
+test_each_input_can_invalidate (__main__.MeshCacheTests.test_each_input_can_invalidate) ... ok
+test_failed_rebuild_is_not_published (__main__.MeshCacheTests.test_failed_rebuild_is_not_published) ... ok
+test_legacy_kept_and_archive_compatible (__main__.MeshCacheTests.test_legacy_kept_and_archive_compatible) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.055s
+
+OK
+
+test_bridged_sheets_stay_separate_and_are_marked_stacked (test_object_points.ObjectLabelTests.test_bridged_sheets_stay_separate_and_are_marked_stacked) ... ok
+test_crossing_fibers_are_split_and_marked_different (test_object_points.ObjectLabelTests.test_crossing_fibers_are_split_and_marked_different) ... ok
+test_fiber_dedup_within_1_5_voxels_and_orientation_agnostic_negatives (test_object_points.ObjectLabelTests.test_fiber_dedup_within_1_5_voxels_and_orientation_agnostic_negatives) ... ok
+test_fiber_direction_decoding (test_object_points.ObjectLabelTests.test_fiber_direction_decoding) ... ok
+test_grid_sampling_matches_grid_sample (test_object_points.ObjectLabelTests.test_grid_sampling_matches_grid_sample) ... ok
+test_mesh_uv_components_dedup_and_ink_supervision (test_object_points.ObjectLabelTests.test_mesh_uv_components_dedup_and_ink_supervision) ... ok
+test_object_loss_is_float32_under_half_precision_autocast (test_object_points.ObjectLabelTests.test_object_loss_is_float32_under_half_precision_autocast) ... ok
+test_point_term_only_pulls_corresponding_points (test_object_points.ObjectLabelTests.test_point_term_only_pulls_corresponding_points) ... ok
+test_supcon_l_out_margin_and_cross_batch_ink_loss (test_object_points.ObjectLabelTests.test_supcon_l_out_margin_and_cross_batch_ink_loss) ... ok
+test_accumulated_step_trains_dense_heads_and_cnn (test_object_points.ObjectLossTrainingTests.test_accumulated_step_trains_dense_heads_and_cnn) ... ok
+test_napari_visualizer_dense_and_ink_embeddings (test_object_points.ObjectLossTrainingTests.test_napari_visualizer_dense_and_ink_embeddings) ... ok
+test_resume_adds_heads_and_keeps_optimizer_state (test_object_points.ObjectLossTrainingTests.test_resume_adds_heads_and_keeps_optimizer_state) ... ok
+test_resume_axial_checkpoint_with_mixed_rope (test_object_points.ObjectLossTrainingTests.test_resume_axial_checkpoint_with_mixed_rope) ... ok
+test_dino_augmentation_preset_keeps_spatial_and_intensity_jitter (test_object_points.ObjectPointDatasetTests.test_dino_augmentation_preset_keeps_spatial_and_intensity_jitter) ... ok
+test_mesh_and_ink_oversampling_scales_with_point_counts (test_object_points.ObjectPointDatasetTests.test_mesh_and_ink_oversampling_scales_with_point_counts) ... ok
+test_points_follow_crops_flips_rotations_and_transposes (test_object_points.ObjectPointDatasetTests.test_points_follow_crops_flips_rotations_and_transposes) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 12.650s
+
+OK
+step=1 monitor_image=monitor_step_000001.jpg loss=11.6049 glob=2.8725 loc=2.8725 ibot=2.7614 koleo=24.3545 gram=0.0000 point=0.0000
+Initialized modules absent from the checkpoint: ['dense_head', 'region_head'] (start step 1)
+Warm-started 2 mixed-RoPE frequency tensors from the axial layout

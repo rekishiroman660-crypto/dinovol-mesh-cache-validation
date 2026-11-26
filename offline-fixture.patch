@@ -1,0 +1,13 @@
+diff --git a/dinovol/tests/test_object_points.py b/dinovol/tests/test_object_points.py
+index 8a9302c..1d49542 100644
+--- a/dinovol/tests/test_object_points.py
++++ b/dinovol/tests/test_object_points.py
+@@ -103,7 +103,7 @@ def _make_volume(root: Path) -> dict:
+         "volume_scale": 0,
+         "surface_path": str(root / "surface.zarr"),
+         "surface_level": 0,
+-        "mesh_cache_path": str(mesh_cache_path),
++        "meshes": load_mesh_segments_cache(mesh_cache_path),
+         "fiber_presence_path": paths["presence"],
+         "fiber_nx_path": paths["nx"],
+         "fiber_ny_path": paths["ny"],

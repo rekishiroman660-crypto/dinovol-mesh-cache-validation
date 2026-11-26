@@ -1,0 +1,206 @@
+--- a/dinovol/dinovol_2/dataset/object_labels.py
++++ b/dinovol/dinovol_2/dataset/object_labels.py
+@@ -10,10 +10,14 @@
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass
++import gzip
++import hashlib
+ import json
+ import math
+ from pathlib import Path
+ import re
++from tempfile import NamedTemporaryFile
++from zipfile import BadZipFile
+ from typing import Any, Mapping
+ 
+ import numpy as np
+@@ -569,7 +573,13 @@
+     return seg
+ 
+ 
+-def save_mesh_segments_cache(cache_path: str | Path, segments: list[MeshSegment]) -> None:
++# Bump whenever source selection, coordinate conversion, or label encoding changes.
++MESH_BUILD_VERSION = "scale-normalized-tifxyz-v1"
++
++
++def save_mesh_segments_cache(
++    cache_path: str | Path, segments: list[MeshSegment], *, signature: str | None = None,
++) -> None:
+     path = Path(cache_path)
+     path.parent.mkdir(parents=True, exist_ok=True)
+     arrays: dict[str, Any] = {"n_segments": np.asarray(len(segments), dtype=np.int32)}
+@@ -581,13 +591,26 @@
+         arrays[f"seg_{idx}_ink"] = seg.ink_state.astype(np.int8)
+         arrays[f"seg_{idx}_bbox_lo"] = seg.bbox_lo.astype(np.float32)
+         arrays[f"seg_{idx}_bbox_hi"] = seg.bbox_hi.astype(np.float32)
+-    tmp_path = path.with_suffix(".tmp.npz")
+-    np.savez_compressed(tmp_path, **arrays)
+-    tmp_path.replace(path)
+-
+-
+-def load_mesh_segments_cache(cache_path: str | Path) -> list[MeshSegment]:
++    if signature is not None:
++        arrays["input_signature"] = np.asarray(signature)
++    temporary = NamedTemporaryFile(dir=path.parent, suffix=".npz", delete=False)
++    tmp_path = Path(temporary.name)
++    try:
++        with temporary:
++            np.savez_compressed(temporary, **arrays)
++        tmp_path.replace(path)
++    finally:
++        tmp_path.unlink(missing_ok=True)
++
++
++def load_mesh_segments_cache(
++    cache_path: str | Path, *, expected_signature: str | None = None,
++) -> list[MeshSegment] | None:
+     with np.load(cache_path, allow_pickle=False) as data:
++        if expected_signature is not None and (
++            "input_signature" not in data or str(data["input_signature"]) != expected_signature
++        ):
++            return None
+         n_segments = int(data["n_segments"])
+         segments: list[MeshSegment] = []
+         for idx in range(n_segments):
+@@ -611,21 +634,18 @@
+         return segments
+ 
+ 
+-_METADATA_CACHE: dict[str, dict[str, Any]] = {}
+-
+-
+ def _load_metadata_json(metadata_path: str | Path) -> dict[str, Any]:
+     key = str(metadata_path)
+-    if key not in _METADATA_CACHE:
+-        if key.startswith(("http://", "https://", "s3://")):
+-            parent, _, name = key.rpartition("/")
+-            text = ObjectStore(parent, auth=None).read(name)
+-            if text is None:
+-                raise FileNotFoundError(key)
+-        else:
+-            text = Path(key).read_text(encoding="utf-8")
+-        _METADATA_CACHE[key] = json.loads(text)
+-    return _METADATA_CACHE[key]
++    if key.startswith(("http://", "https://", "s3://")):
++        parent, _, name = key.rpartition("/")
++        payload = ObjectStore(parent, auth=None).read(name)
++        if payload is None:
++            raise FileNotFoundError(key)
++    else:
++        payload = Path(key).read_bytes()
++    if payload.startswith(b"\x1f\x8b"):
++        payload = gzip.decompress(payload)
++    return json.loads(payload)
+ 
+ 
+ def load_or_build_volume_meshes(
+@@ -641,9 +661,6 @@
+     s3_storage_options: dict[str, Any] | None = None,
+ ) -> list[MeshSegment]:
+     """Load pre-cached MeshSegments for a volume, or build & cache them from metadata.json."""
+-    if mesh_cache_path is not None and Path(mesh_cache_path).is_file():
+-        return load_mesh_segments_cache(mesh_cache_path)
+-
+     parsed_sample, parsed_vol = parse_sample_and_volume_id(volume_path)
+     sample_id = sample_id or parsed_sample
+     volume_id = volume_id or parsed_vol
+@@ -657,8 +674,13 @@
+         prefix = f"{sample_id}_{volume_id}" if sample_id else volume_id
+         cache_file = Path(cache_dir) / f"{prefix}_scale{int(volume_scale)}.npz"
+ 
+-    if cache_file is not None and cache_file.is_file():
+-        return load_mesh_segments_cache(cache_file)
++    # Keep the unverified legacy archive intact, including when a rebuild fails.
++    signed_file = cache_file.with_name(f"{cache_file.name}.signed.npz") if cache_file else None
++
++    def missing_metadata() -> list[MeshSegment]:
++        if cache_file and (cache_file.is_file() or signed_file.is_file()):
++            raise FileNotFoundError(f"Cannot validate mesh cache {cache_file} without metadata")
++        return []
+ 
+     if metadata_path is None:
+         candidates = []
+@@ -674,11 +696,11 @@
+                 metadata_path = cand
+                 break
+         if metadata_path is None:
+-            return []
++            return missing_metadata()
+ 
+     path_str = str(metadata_path)
+     if not path_str.startswith(("http://", "https://", "s3://")) and not Path(path_str).is_file():
+-        return []
++        return missing_metadata()
+ 
+     metadata = _load_metadata_json(metadata_path)
+     raw_samples = metadata.get("samples", {})
+@@ -718,6 +740,25 @@
+     if scale0_shape is None:
+         factor = 2 ** int(volume_scale)
+         scale0_shape = tuple(int(dim) * factor for dim in selected_shape)
++
++    signature = None
++    if signed_file is not None:
++        # Preserve ordered mappings: segment order feeds weighted RNG and label IDs.
++        relevant_inputs = [
++            MESH_BUILD_VERSION, volume_path.rstrip("/"), sample_id, volume_id,
++            int(volume_scale), list(selected_shape), list(scale0_shape),
++            target_sample.get("sample", {}).get("properties", {}).get("volume_transforms"),
++            target_sample.get("segments"),
++        ]
++        signature = hashlib.sha256(
++            json.dumps(relevant_inputs, separators=(",", ":")).encode("utf-8")
++        ).hexdigest()
++        try:
++            cached = load_mesh_segments_cache(signed_file, expected_signature=signature)
++        except (OSError, ValueError, KeyError, EOFError, BadZipFile):
++            cached = None
++        if cached is not None:
++            return cached
+ 
+     transforms_to_target: dict[str, np.ndarray] = {}
+     vol_transforms = target_sample.get("sample", {}).get("properties", {}).get("volume_transforms") or []
+@@ -793,10 +834,13 @@
+             x_arr = _read_tiff(f"{base_url}/x.tif", s3_storage_options)
+             y_arr = _read_tiff(f"{base_url}/y.tif", s3_storage_options)
+             z_arr = _read_tiff(f"{base_url}/z.tif", s3_storage_options)
+-        except Exception:
++        except Exception as exc:
++            if signed_file is not None:
++                raise RuntimeError(f"Cannot rebuild mesh {seg_id} from its coordinate TIFFs") from exc
+             return None
+ 
+         ink_arr = sup_arr = None
++        ink_error = None
+         for rep in reps:
+             if isinstance(rep, Mapping) and rep.get("type") == "ink-labels":
+                 ink_base = _extract_s3_url(rep)
+@@ -805,10 +849,14 @@
+                 try:
+                     ink_arr = _open_ink_zarr_level(f"{ink_base}/inklabels.zarr", "4", s3_storage_options)
+                     sup_arr = _open_ink_zarr_level(f"{ink_base}/supervision.zarr", "4", s3_storage_options)
+-                except Exception:
++                except Exception as exc:
++                    ink_error = exc
+                     ink_arr = sup_arr = None
+                 if ink_arr is not None and sup_arr is not None:
+                     break
++
++        if ink_error is not None and ink_arr is None and signed_file is not None:
++            raise RuntimeError(f"Cannot rebuild mesh {seg_id} with its ink labels") from ink_error
+ 
+         return build_mesh_segment_from_arrays(
+             seg_id,
+@@ -834,9 +882,9 @@
+                 if built is not None:
+                     segments.append(built)
+ 
+-    if cache_file is not None:
++    if signed_file is not None:
+         try:
+-            save_mesh_segments_cache(cache_file, segments)
++            save_mesh_segments_cache(signed_file, segments, signature=signature)
+         except OSError:
+             pass
+     return segments
